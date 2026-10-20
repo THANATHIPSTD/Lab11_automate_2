@@ -1,9 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 
-// The demo account. These two literals are the first thing your pipeline must remove
-// from the repository — see PL-02 in the pipeline specification.
-export const USER = 'reader@camt.example';
-export const PASS = 'Bookworm-2026!';
+export const USER = process.env.TEST_USER!;
+export const PASS = process.env.TEST_PASS!;
 
 export async function signIn(page: Page, email = USER, password = PASS): Promise<void> {
   await page.goto('/signin');

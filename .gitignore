@@ -1,6 +1,10 @@
 
 # Playwright
 node_modules/
+.nuxt/
+.output/
+.vercel/
+.env
 /test-results/
 /playwright-report/
 /blob-report/
