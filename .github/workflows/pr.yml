@@ -7,6 +7,9 @@ on:
 permissions:
   contents: read
 
+
+
+  # Define jobs for the PR gate workflow
 jobs:
   smoke:
     runs-on: ubuntu-latest
