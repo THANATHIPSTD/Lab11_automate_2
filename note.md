@@ -27,3 +27,9 @@ A retry hidden inside the application can mask an outage and make the test pass 
 ## Think first #4 — Exposed password
 
 No. Removing the password in a later commit does not remove it from the earlier commit or from existing clones. A real team should revoke or rotate the credential immediately, investigate possible access, and remove the exposed value from repository history as a best-effort cleanup. The replacement should be stored in a secret manager, not committed to the repository.
+
+## Task 4 — Think first #8
+
+Why: GitHub can offer a status check as a required check after a workflow run has reported that check name for the repository.
+
+A PR with a broken workflow file shows: GitHub reports an invalid workflow file, and the smoke and test-preview checks do not report a result. If those checks are required, they remain expected/pending and block the merge.
