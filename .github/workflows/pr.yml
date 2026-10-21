@@ -7,6 +7,8 @@ on:
 permissions:
   contents: read
 
+
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -76,7 +78,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
-          vercel build --token="$VERCEL_TOKEN"
+          NITRO_PRESET=vercel vercel build --token="$VERCEL_TOKEN"
           deployment_output=$(vercel deploy --prebuilt --yes --token="$VERCEL_TOKEN")
           printf '%s\n' "$deployment_output"
           preview_url=$(printf '%s\n' "$deployment_output" | tail -n 1)
