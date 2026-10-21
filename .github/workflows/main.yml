@@ -1,0 +1,135 @@
+name: Main pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run full suite on local build
+        run: npx playwright test --project=chromium --grep-invert @quarantine
+        env:
+          TEST_USER: ${{ secrets.TEST_USER }}
+          TEST_PASS: ${{ secrets.TEST_PASS }}
+
+      - name: Upload HTML report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-test-report
+          path: playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  deploy-production:
+    needs: test
+    if: needs.test.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel
+
+      - name: Build and deploy to production
+        id: deploy
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          NITRO_PRESET=vercel vercel build --prod --token="$VERCEL_TOKEN"
+          deployment_output=$(vercel deploy --prebuilt --prod --yes --token="$VERCEL_TOKEN")
+          printf '%s\n' "$deployment_output"
+          production_url=$(printf '%s\n' "$deployment_output" | tail -n 1)
+          echo "url=$production_url" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: deploy-production
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Smoke test deployed production
+        run: npx playwright test --project=chromium --grep @smoke --grep-invert @quarantine
+        env:
+          TEST_USER: ${{ secrets.TEST_USER }}
+          TEST_PASS: ${{ secrets.TEST_PASS }}
+          BASE_URL: ${{ needs.deploy-production.outputs.url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+
+      - name: Upload HTML report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-smoke-report
+          path: playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
