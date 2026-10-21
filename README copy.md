@@ -77,9 +77,10 @@ By the end, your repository will:
 > trace of one failure (Network tab) and classify the failure as **regression**,
 > **flaky test code** or **environment**. Name the single piece of evidence that decided it.
 >
-> Predicted passes: ______   Actual: ______   Classification: __________________
+> Predicted passes: Not recorded before the first run.   Actual: 9 passed / 1 failed
+> Classification: Environment, likely caused by the deliberately unreliable rates service.
 >
-> Evidence: __________________________________________________________________
+> Evidence: The failed test displayed “Exchange rate unavailable.” The run did not retain a Network trace, so HTTP 503 was not directly verified.
 
 Do **not** push yet. Read Task 1 first.
 
@@ -102,20 +103,22 @@ acceptance criterion of PL-01 and PL-02. Things you will need to decide for your
 > requires by the end of this lab. Name them, and for each say what would end up on GitHub
 > without it.
 >
-> 1. ____________ → ________________________________________________
+> 1. `.nuxt/` → Generated Nuxt cache and development files could be committed to GitHub.
 >
-> 2. ____________ → ________________________________________________
+> 2. `.output/` → Built application output could be committed to GitHub.
 >
-> 3. ____________ → ________________________________________________
+> 3. `.env` → Local credentials and other environment values could be exposed on GitHub.
+>
+> Note: PL-01 also requires `.vercel/` to be ignored. The starter file I checked lacked this entry too, so it was added as well.
 
 > **Think first #3** — open `app/pages/cart.vue` and find the call to `/api/rates`. It
 > passes `{ retry: 0 }`. Find out what `$fetch` does without it, then predict the failure
 > rate of the FX test if somebody deleted that option. Why is a retry hidden *inside the
 > application* worse for a tester than `retries: 2` in the Playwright config?
 >
-> Failure rate without `retry: 0`: ______
+> Failure rate without `retry: 0`: `$0.35^2 = 0.1225`, or 12.25%, assuming independent attempts.
 >
-> Why worse: _________________________________________________________________
+> Why worse: An application-level retry can hide an outage and make a failing dependency appear healthy. A Playwright retry keeps the initial test failure visible and can capture a trace for diagnosis.
 
 When the suite is green locally with credentials from `.env` only, add the two repository
 secrets (*Settings → Secrets and variables → Actions → New repository secret*):
@@ -125,7 +128,7 @@ secrets (*Settings → Secrets and variables → Actions → New repository secr
 > password in it and pushed. In Task 1 you remove it in a new commit. Is the password now
 > safe? What would a real team have to do?
 >
-> Answer: ____________________________________________________________________
+> Answer: No. Removing the password in a later commit does not erase it from earlier commits or existing clones. A real team should revoke or rotate it immediately, investigate possible access, remove it from repository history as a best-effort cleanup, and store the replacement in a secret manager.
 
 ## Task 2 — Quarantine the unreliable test (PL-08) 
 
@@ -142,9 +145,9 @@ Using your triage from Think first #1:
 > run with `retries: 2`, and with `retries: 5`. Then give the reason the answer is still
 > *no*, even though the numbers look good.
 >
-> P(fail) with 2 retries: ______   with 5 retries: ______
+> P(fail) with 2 retries: `$0.35^3 = 4.2875%`   with 5 retries: `$0.35^6 ≈ 0.1838%`
 >
-> Why still no: _______________________________________________________________
+> Why still no: More retries hide the underlying reliability problem, slow feedback, and violate the requirement that retries never exceed 2. Quarantine and track the test instead.
 
 ## Task 3 — Deploy to your own Vercel account (PL-03) 
 
@@ -216,9 +219,9 @@ From now on, a deployment happens only when someone — your pipeline — runs t
 > the main pipeline's test job turns red. Predict what Vercel does, and what your customers
 > see.
 >
-> Vercel: ____________________________________________________________________
+> Vercel: If Git deployments remained enabled, Vercel would deploy the merge to Production independently of the failing Actions test.
 >
-> Customers see: _____________________________________________________________
+> Customers see: The buggy version could be live even though the main pipeline is red.
 
 ### 3.4 Your first deployment: a preview, by hand
 
@@ -254,11 +257,11 @@ source *CLI*.
 > your pipeline points Playwright at a preview URL without the bypass, and name the two
 > possible fixes. Which one does PL-03 choose, and why is it the better one?
 >
-> Private window shows: _____________________________________________________
+> Private window shows: Vercel Authentication's sign-in/protection page because the viewer is not authenticated.
 >
-> Tests without the bypass: __________________________________________________
+> Tests without the bypass: Requests to the protected Preview would be redirected to the Vercel sign-in page and the UI tests would fail.
 >
-> Fixes: (a) ______________________  (b) ______________________   Chosen: ______
+> Fixes: (a) Disable Deployment Protection  (b) Keep protection enabled and use Protection Bypass for Automation   Chosen: (b), because the Preview stays private while CI can access it.
 
 ### 3.5 Keep previews private, but let your tests in (AC-03.4)
 
@@ -361,9 +364,9 @@ branch protection rule*). You are working alone, so set the number of required a
 > checks *after* the workflow has run once. Why? And predict what a pull request would show
 > if you later broke the YAML so badly that the workflow never starts.
 >
-> Why: _______________________________________________________________________
+> Why: GitHub can offer a status check as required only after a workflow run has reported that check name for the repository.
 >
-> A PR with a broken workflow file shows: _______________________________________
+> A PR with a broken workflow file shows: GitHub reports an invalid workflow file. The expected `smoke` and `test-preview` checks do not report results, so required checks remain pending and block merging.
 
 **Prove the door locks (AC-05.4).** On a new branch, make a change that a smoke test must
 catch — for example, rename the **Sign in** button in `app/pages/signin.vue`. Push it, open
@@ -405,7 +408,7 @@ git am patches/pr-42-extract-pricing.patch
 > (a) will your PR gate pass? (b) will the main pipeline pass? (c) if anything fails,
 > which test, and why did Somchai's local check not catch it?
 >
-> (a) ______   (b) ______   (c) ______________________________________________
+> (a) The PR gate passes because it only runs the `@smoke` tests.   (b) The main pipeline fails because it runs the full non-quarantined suite.   (c) The cart boundary test and checkout discounted-total test fail: the refactor changes the inclusive 2,000 THB rule to a strict greater-than rule. Somchai ran only the smoke suite, which does not include these boundary tests.
 
 Push the branch, open the pull request, and — acting as the reviewer who trusts a green
 check — **merge it** when the gate allows. Watch the main pipeline. Record in `PIPELINE.md`
@@ -420,11 +423,11 @@ request, let the gate pass, and merge the revert. Confirm the next main run depl
 > test `@smoke`, or make `test-preview` run the full suite. Argue for and against each using
 > the timing budget in §2 of the specification, then decide.
 >
-> Tag it `@smoke`: for ______________________ / against ______________________
+> Tag it `@smoke`: for catching the demonstrated boundary regression before merge with little added runtime / against making the smoke set slightly larger and requiring the test to stay fast.
 >
-> Full suite on the preview: for ______________________ / against ______________________
+> Full suite on the preview: for broader coverage of the exact deployed artifact before merge / against extra runtime and cost that could threaten the 8-minute PR budget as the suite grows.
 >
-> Decision and reason: ________________________________________________________
+> Decision and reason: Tag the cart boundary test as `@smoke`; it catches this regression in both local and Preview smoke runs at low cost, while the main pipeline continues to run the full non-quarantined suite.
 
 ## Task 7 — Nightly full matrix against a selected target (PL-07, PL-08) 
 
